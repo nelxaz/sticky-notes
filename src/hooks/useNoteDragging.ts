@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction } from "react";
 import type { ActiveInteractionKind } from "../types/interactions.ts";
 import type { Note } from "../types/notes.ts";
@@ -40,6 +40,17 @@ export function useNoteDragging({
   syncTrashTarget: (pointerX: number, pointerY: number) => void;
 }) {
   const [moveInteraction, setMoveInteraction] = useState<MoveInteraction | null>(null);
+  const pointerCaptureTargetRef = useRef<HTMLElement | null>(null);
+
+  function releaseMovePointerCapture(pointerId: number) {
+    const pointerCaptureTarget = pointerCaptureTargetRef.current;
+
+    if (pointerCaptureTarget?.hasPointerCapture(pointerId)) {
+      pointerCaptureTarget.releasePointerCapture(pointerId);
+    }
+
+    pointerCaptureTargetRef.current = null;
+  }
 
   function handleNotePointerDown(event: ReactPointerEvent<HTMLElement>, note: Note) {
     if (
@@ -59,6 +70,7 @@ export function useNoteDragging({
 
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    pointerCaptureTargetRef.current = event.currentTarget;
     activeInteractionRef.current = "move";
 
     setMoveInteraction({
@@ -115,20 +127,48 @@ export function useNoteDragging({
     syncTrashTarget(event.clientX, event.clientY);
   }
 
-  async function endMoveInteraction(event: ReactPointerEvent<HTMLElement>) {
-    if (!moveInteraction || moveInteraction.pointerId !== event.pointerId) {
+  async function endMoveInteraction(_event: ReactPointerEvent<HTMLElement>) {
+    if (!moveInteraction || activeInteractionRef.current !== "move") {
       return;
     }
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    await handleTrashDrop(moveInteraction.noteId);
+    releaseMovePointerCapture(moveInteraction.pointerId);
     activeInteractionRef.current = null;
+    await handleTrashDrop(moveInteraction.noteId);
     setMoveInteraction(null);
     clearTrashTarget();
   }
+
+  useEffect(() => {
+    if (!moveInteraction) {
+      return;
+    }
+
+    const activeMoveInteraction = moveInteraction;
+
+    function handleWindowPointerEnd(event: PointerEvent) {
+      if (
+        event.pointerId !== activeMoveInteraction.pointerId ||
+        activeInteractionRef.current !== "move"
+      ) {
+        return;
+      }
+
+      releaseMovePointerCapture(activeMoveInteraction.pointerId);
+      activeInteractionRef.current = null;
+      void handleTrashDrop(activeMoveInteraction.noteId);
+      setMoveInteraction(null);
+      clearTrashTarget();
+    }
+
+    window.addEventListener("pointerup", handleWindowPointerEnd);
+    window.addEventListener("pointercancel", handleWindowPointerEnd);
+
+    return () => {
+      window.removeEventListener("pointerup", handleWindowPointerEnd);
+      window.removeEventListener("pointercancel", handleWindowPointerEnd);
+    };
+  }, [activeInteractionRef, clearTrashTarget, handleTrashDrop, moveInteraction]);
 
   return {
     endMoveInteraction,

@@ -308,6 +308,7 @@ export function Board() {
             note={note}
             onEditBlur={handleEditBlur}
             onEditChange={handleEditChange}
+            onLostPointerCapture={handlePointerEnd}
             onNoteDoubleClick={handleNoteDoubleClick}
             onPointerCancel={handlePointerEnd}
             onPointerDown={handleNotePointerDown}

@@ -15,6 +15,7 @@ type StickyNoteProps = {
   note: Note;
   onEditBlur: (event: FocusEvent<HTMLTextAreaElement>, note: Note) => void;
   onEditChange: (event: ChangeEvent<HTMLTextAreaElement>, note: Note) => void;
+  onLostPointerCapture: (event: ReactPointerEvent<HTMLElement>) => void;
   onNoteDoubleClick: (note: Note) => void;
   onPointerCancel: (event: ReactPointerEvent<HTMLElement>) => void;
   onPointerDown: (event: ReactPointerEvent<HTMLElement>, note: Note) => void;
@@ -34,6 +35,7 @@ export function StickyNote({
   note,
   onEditBlur,
   onEditChange,
+  onLostPointerCapture,
   onNoteDoubleClick,
   onPointerCancel,
   onPointerDown,
@@ -50,6 +52,7 @@ export function StickyNote({
       }${isResizing ? " sticky-note--resizing" : ""}`}
       data-note-root="true"
       onDoubleClick={() => onNoteDoubleClick(note)}
+      onLostPointerCapture={isEditing ? undefined : onLostPointerCapture}
       onPointerCancel={isEditing ? undefined : onPointerCancel}
       onPointerDown={isEditing ? undefined : (event) => onPointerDown(event, note)}
       onPointerMove={isEditing ? undefined : onPointerMove}

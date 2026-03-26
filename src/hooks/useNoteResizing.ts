@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, PointerEvent as ReactPointerEvent, RefObject, SetStateAction } from "react";
 import type { ActiveInteractionKind, ResizeEdge } from "../types/interactions.ts";
 import type { Note } from "../types/notes.ts";
@@ -19,6 +19,12 @@ type ResizeInteraction = {
   startHeight: number;
 };
 
+function getNoteRootElement(element: HTMLElement) {
+  const noteRoot = element.closest<HTMLElement>("[data-note-root='true']");
+
+  return noteRoot ?? element;
+}
+
 export function useNoteResizing({
   activeInteractionRef,
   boardSurfaceRef,
@@ -37,6 +43,7 @@ export function useNoteResizing({
   setNextZIndex: Dispatch<SetStateAction<number>>;
 }) {
   const [resizeInteraction, setResizeInteraction] = useState<ResizeInteraction | null>(null);
+  const pointerCaptureTargetRef = useRef<HTMLElement | null>(null);
 
   function handleResizePointerDown(
     event: ReactPointerEvent<HTMLElement>,
@@ -54,7 +61,10 @@ export function useNoteResizing({
 
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const pointerCaptureTarget = getNoteRootElement(event.currentTarget);
+
+    pointerCaptureTarget.setPointerCapture(event.pointerId);
+    pointerCaptureTargetRef.current = pointerCaptureTarget;
     activeInteractionRef.current = "resize";
 
     setResizeInteraction({
@@ -146,19 +156,58 @@ export function useNoteResizing({
     });
   }
 
-  function endResizeInteraction(event: ReactPointerEvent<HTMLElement>) {
-    if (!resizeInteraction || resizeInteraction.pointerId !== event.pointerId) {
+  function endResizeInteraction(_event: ReactPointerEvent<HTMLElement>) {
+    if (!resizeInteraction || activeInteractionRef.current !== "resize") {
       return;
     }
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
+    const pointerCaptureTarget = pointerCaptureTargetRef.current;
+
+    if (pointerCaptureTarget?.hasPointerCapture(resizeInteraction.pointerId)) {
+      pointerCaptureTarget.releasePointerCapture(resizeInteraction.pointerId);
     }
 
     activeInteractionRef.current = null;
+    pointerCaptureTargetRef.current = null;
     setResizeInteraction(null);
     clearTrashTarget();
   }
+
+  useEffect(() => {
+    if (!resizeInteraction) {
+      return;
+    }
+
+    const activeResizeInteraction = resizeInteraction;
+
+    function handleWindowPointerEnd(event: PointerEvent) {
+      if (
+        event.pointerId !== activeResizeInteraction.pointerId ||
+        activeInteractionRef.current !== "resize"
+      ) {
+        return;
+      }
+
+      const pointerCaptureTarget = pointerCaptureTargetRef.current;
+
+      if (pointerCaptureTarget?.hasPointerCapture(activeResizeInteraction.pointerId)) {
+        pointerCaptureTarget.releasePointerCapture(activeResizeInteraction.pointerId);
+      }
+
+      activeInteractionRef.current = null;
+      pointerCaptureTargetRef.current = null;
+      setResizeInteraction(null);
+      clearTrashTarget();
+    }
+
+    window.addEventListener("pointerup", handleWindowPointerEnd);
+    window.addEventListener("pointercancel", handleWindowPointerEnd);
+
+    return () => {
+      window.removeEventListener("pointerup", handleWindowPointerEnd);
+      window.removeEventListener("pointercancel", handleWindowPointerEnd);
+    };
+  }, [activeInteractionRef, clearTrashTarget, resizeInteraction]);
 
   return {
     endResizeInteraction,
