@@ -3,6 +3,7 @@ import type { MouseEvent } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import { useRef, useState } from "react";
 import { StickyNote } from "./StickyNote.tsx";
+import { TrashZone } from "./TrashZone.tsx";
 
 const DEFAULT_NOTE_WIDTH = 180;
 const DEFAULT_NOTE_HEIGHT = 180;
@@ -37,16 +38,37 @@ type ResizeInteraction = {
 
 export function Board() {
   const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const trashZoneRef = useRef<HTMLDivElement | null>(null);
   const noteIdRef = useRef(0);
   const [notes, setNotes] = useState<Note[]>([]);
   const [nextZIndex, setNextZIndex] = useState(1);
   const [moveInteraction, setMoveInteraction] = useState<MoveInteraction | null>(null);
   const [resizeInteraction, setResizeInteraction] = useState<ResizeInteraction | null>(null);
+  const [isTrashTargeted, setIsTrashTargeted] = useState(false);
+
+  function isPointerInsideTrashZone(pointerX: number, pointerY: number) {
+    const trashZoneRect = trashZoneRef.current?.getBoundingClientRect();
+
+    if (!trashZoneRect) {
+      return false;
+    }
+
+    return (
+      pointerX >= trashZoneRect.left &&
+      pointerX <= trashZoneRect.right &&
+      pointerY >= trashZoneRect.top &&
+      pointerY <= trashZoneRect.bottom
+    );
+  }
 
   function handleBoardDoubleClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target;
 
-    if (!(target instanceof HTMLElement) || target.closest("[data-note-root='true']")) {
+    if (
+      !(target instanceof HTMLElement) ||
+      target.closest("[data-note-root='true']") ||
+      target.closest("[data-trash-zone='true']")
+    ) {
       return;
     }
 
@@ -172,6 +194,7 @@ export function Board() {
           note.id === moveInteraction.noteId ? { ...note, x: nextX, y: nextY } : note,
         ),
       );
+      setIsTrashTargeted(isPointerInsideTrashZone(event.clientX, event.clientY));
 
       return;
     }
@@ -241,7 +264,14 @@ export function Board() {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
+      if (isTrashTargeted) {
+        setNotes((currentNotes) =>
+          currentNotes.filter((note) => note.id !== moveInteraction.noteId),
+        );
+      }
+
       setMoveInteraction(null);
+      setIsTrashTargeted(false);
     }
 
     if (resizeInteraction && resizeInteraction.pointerId === event.pointerId) {
@@ -250,6 +280,7 @@ export function Board() {
       }
 
       setResizeInteraction(null);
+      setIsTrashTargeted(false);
     }
   }
 
@@ -289,6 +320,12 @@ export function Board() {
         {notes.length === 0 ? (
           <p className="board-surface__hint">Double-clicking empty space will create notes here.</p>
         ) : null}
+        <div className="board-surface__trash" ref={trashZoneRef}>
+          <TrashZone
+            isActive={moveInteraction !== null}
+            isTargeted={moveInteraction !== null && isTrashTargeted}
+          />
+        </div>
         <p className="board-surface__next">Next z-index: {nextZIndex}</p>
       </div>
     </section>
