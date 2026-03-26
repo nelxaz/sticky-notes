@@ -2,57 +2,37 @@ import type {
   ChangeEvent,
   CSSProperties,
   FocusEvent,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_NOTE_COLOR, NOTE_COLORS, NOTE_COLOR_ORDER } from "../constants/noteColors.ts";
+import { useBoardPersistence } from "../hooks/useBoardPersistence.ts";
 import { useNoteCreation } from "../hooks/useNoteCreation.ts";
 import { useNoteDragging } from "../hooks/useNoteDragging.ts";
 import { useNoteResizing } from "../hooks/useNoteResizing.ts";
 import { useTrashDrop } from "../hooks/useTrashDrop.ts";
 import { promoteNoteToFront, updateNote } from "../hooks/stickyBoardUtils.ts";
-import { fetchStarterNotes } from "../mocks/notesApi.ts";
+import type { BoardSnapshot } from "../types/boardPersistence.ts";
 import type { ActiveInteractionKind } from "../types/interactions.ts";
 import type { Note, NoteColor } from "../types/notes.ts";
 import { StickyNote } from "./StickyNote.tsx";
 import { TrashZone } from "./TrashZone.tsx";
 
-const STORAGE_KEY = "sticky-notes.board";
-
-type StoredBoardState = {
-  nextNoteId: number;
-  nextZIndex: number;
-  notes: Note[];
-  selectedColor: NoteColor;
-};
-
-function isStoredBoardState(value: unknown): value is StoredBoardState {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const record = value as Partial<StoredBoardState>;
-
-  return (
-    Array.isArray(record.notes) &&
-    typeof record.nextNoteId === "number" &&
-    typeof record.nextZIndex === "number" &&
-    typeof record.selectedColor === "string"
-  );
-}
-
-function normalizeStoredNotes(notes: Note[]) {
-  return notes.map((note) => ({
-    ...note,
-    color: note.color ?? DEFAULT_NOTE_COLOR,
-  }));
+function updateStateRef<T>(ref: MutableRefObject<T>, value: T) {
+  ref.current = value;
+  return value;
 }
 
 export function Board() {
   const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
   const activeInteractionRef = useRef<ActiveInteractionKind | null>(null);
   const noteIdRef = useRef(0);
-  const skipPersistRef = useRef(false);
+  const notesRef = useRef<Note[]>([]);
+  const nextZIndexRef = useRef(1);
+  const selectedColorRef = useRef<NoteColor>(DEFAULT_NOTE_COLOR);
+  const previousMoveActiveRef = useRef(false);
+  const previousResizeActiveRef = useRef(false);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -60,6 +40,33 @@ export function Board() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [nextZIndex, setNextZIndex] = useState(1);
   const [selectedColor, setSelectedColor] = useState<NoteColor>(DEFAULT_NOTE_COLOR);
+  const { clearPersistedBoard, hydrateBoard, persistBoardState } = useBoardPersistence();
+
+  function createSnapshot({
+    nextNoteId,
+    nextZIndex,
+    notes,
+    selectedColor,
+  }: BoardSnapshot): BoardSnapshot {
+    return {
+      nextNoteId,
+      nextZIndex,
+      notes,
+      selectedColor,
+    };
+  }
+
+  function persistCurrentBoardState(overrides?: Partial<BoardSnapshot>) {
+    persistBoardState(
+      createSnapshot({
+        nextNoteId: overrides?.nextNoteId ?? noteIdRef.current,
+        nextZIndex: overrides?.nextZIndex ?? nextZIndexRef.current,
+        notes: overrides?.notes ?? notesRef.current,
+        selectedColor: overrides?.selectedColor ?? selectedColorRef.current,
+      }),
+    );
+  }
+
   const {
     clearDeleteError,
     clearTrashTarget,
@@ -70,11 +77,24 @@ export function Board() {
     syncTrashTarget,
     trashZoneRef,
   } = useTrashDrop({
+    getDeleteSuccessSnapshot: (nextNotes) => {
+      const snapshot = createSnapshot({
+        nextNoteId: noteIdRef.current,
+        nextZIndex: nextZIndexRef.current,
+        notes: nextNotes,
+        selectedColor: selectedColorRef.current,
+      });
+
+      persistBoardState(snapshot);
+
+      return snapshot;
+    },
     setNotes,
   });
   const { handleBoardDoubleClick } = useNoteCreation({
     canCreateNote: editingNoteId === null,
     noteIdRef,
+    onNoteCreated: persistBoardState,
     nextZIndex,
     selectedColor,
     setNotes,
@@ -109,48 +129,31 @@ export function Board() {
   });
 
   useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
+
+  useEffect(() => {
+    nextZIndexRef.current = nextZIndex;
+  }, [nextZIndex]);
+
+  useEffect(() => {
+    selectedColorRef.current = selectedColor;
+  }, [selectedColor]);
+
+  useEffect(() => {
     let isCancelled = false;
 
-    async function hydrateBoard() {
-      const storedValue = window.localStorage.getItem(STORAGE_KEY);
-
-      if (storedValue) {
-        try {
-          const parsed = JSON.parse(storedValue) as unknown;
-
-          if (isStoredBoardState(parsed)) {
-            const normalizedNotes = normalizeStoredNotes(parsed.notes);
-
-            if (!isCancelled) {
-              noteIdRef.current = parsed.nextNoteId;
-              setNotes(normalizedNotes);
-              setNextZIndex(parsed.nextZIndex);
-              setSelectedColor(parsed.selectedColor);
-              setIsHydrated(true);
-            }
-
-            return;
-          }
-        } catch {
-          window.localStorage.removeItem(STORAGE_KEY);
-        }
-      }
-
+    async function hydrate() {
       setIsLoadingStarterNotes(true);
 
       try {
-        const starterNotes = await fetchStarterNotes();
+        const { snapshot } = await hydrateBoard();
 
         if (!isCancelled) {
-          const normalizedNotes = normalizeStoredNotes(starterNotes);
-          const restoredNextZIndex =
-            normalizedNotes.reduce(
-              (highestZIndex, note) => Math.max(highestZIndex, note.zIndex),
-              0,
-            ) + 1;
-
-          setNotes(normalizedNotes);
-          setNextZIndex(restoredNextZIndex);
+          noteIdRef.current = snapshot.nextNoteId;
+          setNotes(updateStateRef(notesRef, snapshot.notes));
+          setNextZIndex(updateStateRef(nextZIndexRef, snapshot.nextZIndex));
+          setSelectedColor(updateStateRef(selectedColorRef, snapshot.selectedColor));
         }
       } finally {
         if (!isCancelled) {
@@ -160,32 +163,12 @@ export function Board() {
       }
     }
 
-    void hydrateBoard();
+    void hydrate();
 
     return () => {
       isCancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    if (!isHydrated) {
-      return;
-    }
-
-    if (skipPersistRef.current) {
-      skipPersistRef.current = false;
-      return;
-    }
-
-    const snapshot: StoredBoardState = {
-      nextNoteId: noteIdRef.current,
-      nextZIndex,
-      notes,
-      selectedColor,
-    };
-
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-  }, [isHydrated, nextZIndex, notes, selectedColor]);
+  }, [hydrateBoard]);
 
   useEffect(() => {
     if (trashDeleteErrorMessage) {
@@ -193,19 +176,48 @@ export function Board() {
     }
   }, [trashDeleteErrorMessage]);
 
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (previousMoveActiveRef.current && moveInteraction === null) {
+      persistCurrentBoardState();
+    }
+
+    previousMoveActiveRef.current = moveInteraction !== null;
+  }, [isHydrated, moveInteraction]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    if (previousResizeActiveRef.current && resizeInteraction === null) {
+      persistCurrentBoardState();
+    }
+
+    previousResizeActiveRef.current = resizeInteraction !== null;
+  }, [isHydrated, resizeInteraction]);
+
   function clearAllNotes() {
-    skipPersistRef.current = true;
     noteIdRef.current = 0;
-    window.localStorage.removeItem(STORAGE_KEY);
-    setNotes([]);
-    setNextZIndex(1);
+    clearPersistedBoard();
+    setNotes(updateStateRef(notesRef, []));
+    setNextZIndex(updateStateRef(nextZIndexRef, 1));
     setEditingNoteId(null);
     clearDeleteError();
     setDeleteErrorMessage("");
   }
 
   function handleColorSelection(color: NoteColor) {
-    setSelectedColor(color);
+    setSelectedColor(updateStateRef(selectedColorRef, color));
+    persistCurrentBoardState({ selectedColor: color });
+  }
+
+  function handleDismissDeleteError() {
+    clearDeleteError();
+    setDeleteErrorMessage("");
   }
 
   function handleNoteDoubleClick(note: Note) {
@@ -234,6 +246,7 @@ export function Board() {
 
   function handleEditBlur(_event: FocusEvent<HTMLTextAreaElement>, _note: Note) {
     setEditingNoteId(null);
+    persistCurrentBoardState();
   }
 
   function handleNotePointerMove(event: ReactPointerEvent<HTMLElement>) {
@@ -285,7 +298,7 @@ export function Board() {
       {deleteErrorMessage ? (
         <div className="board-frame__banner" role="status">
           <p>{deleteErrorMessage}</p>
-          <button onClick={() => setDeleteErrorMessage("")} type="button">
+          <button onClick={handleDismissDeleteError} type="button">
             Dismiss
           </button>
         </div>
@@ -313,8 +326,8 @@ export function Board() {
             onPointerCancel={handlePointerEnd}
             onPointerDown={handleNotePointerDown}
             onPointerMove={handleNotePointerMove}
-            onResizePointerDown={handleResizePointerDown}
             onPointerUp={handlePointerEnd}
+            onResizePointerDown={handleResizePointerDown}
           />
         ))}
         {notes.length === 0 && !isLoadingStarterNotes ? (

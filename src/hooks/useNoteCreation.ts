@@ -1,4 +1,5 @@
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
+import type { BoardSnapshot } from "../types/boardPersistence.ts";
 import type { Note } from "../types/notes.ts";
 import type { NoteColor } from "../types/notes.ts";
 import { clamp } from "./stickyBoardUtils.ts";
@@ -9,6 +10,7 @@ const DEFAULT_NOTE_HEIGHT = 180;
 export function useNoteCreation({
   canCreateNote,
   noteIdRef,
+  onNoteCreated,
   nextZIndex,
   selectedColor,
   setNotes,
@@ -16,6 +18,7 @@ export function useNoteCreation({
 }: {
   canCreateNote: boolean;
   noteIdRef: MutableRefObject<number>;
+  onNoteCreated: (snapshot: BoardSnapshot) => void;
   nextZIndex: number;
   selectedColor: NoteColor;
   setNotes: Dispatch<SetStateAction<Note[]>>;
@@ -63,8 +66,19 @@ export function useNoteCreation({
       zIndex: nextZIndex,
     };
 
-    setNotes((currentNotes) => [...currentNotes, nextNote]);
-    setNextZIndex((currentZIndex) => currentZIndex + 1);
+    setNotes((currentNotes) => {
+      const nextNotes = [...currentNotes, nextNote];
+
+      onNoteCreated({
+        nextNoteId: noteIdRef.current,
+        nextZIndex: nextZIndex + 1,
+        notes: nextNotes,
+        selectedColor,
+      });
+
+      return nextNotes;
+    });
+    setNextZIndex(nextZIndex + 1);
   }
 
   return { handleBoardDoubleClick };

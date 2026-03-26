@@ -1,9 +1,16 @@
 import { useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
+import type { BoardSnapshot } from "../types/boardPersistence.ts";
 import type { Note } from "../types/notes.ts";
 import { deleteNoteRequest } from "../mocks/notesApi.ts";
 
-export function useTrashDrop({ setNotes }: { setNotes: Dispatch<SetStateAction<Note[]>> }) {
+export function useTrashDrop({
+  getDeleteSuccessSnapshot,
+  setNotes,
+}: {
+  getDeleteSuccessSnapshot: (notes: Note[]) => BoardSnapshot;
+  setNotes: Dispatch<SetStateAction<Note[]>>;
+}) {
   const trashZoneRef = useRef<HTMLDivElement | null>(null);
   const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
   const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
@@ -43,7 +50,13 @@ export function useTrashDrop({ setNotes }: { setNotes: Dispatch<SetStateAction<N
 
     try {
       await deleteNoteRequest();
-      setNotes((currentNotes) => currentNotes.filter((note) => note.id !== noteId));
+      setNotes((currentNotes) => {
+        const nextNotes = currentNotes.filter((note) => note.id !== noteId);
+
+        getDeleteSuccessSnapshot(nextNotes);
+
+        return nextNotes;
+      });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "The note could not be deleted. Please try again.";
