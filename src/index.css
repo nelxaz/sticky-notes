@@ -165,6 +165,43 @@ textarea {
   cursor: grab;
 }
 
+.sticky-note__edge {
+  position: absolute;
+  z-index: 1;
+}
+
+.sticky-note__edge--top,
+.sticky-note__edge--bottom {
+  left: 8px;
+  right: 8px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.sticky-note__edge--top {
+  top: 0;
+}
+
+.sticky-note__edge--bottom {
+  bottom: 0;
+}
+
+.sticky-note__edge--left,
+.sticky-note__edge--right {
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.sticky-note__edge--left {
+  left: 0;
+}
+
+.sticky-note__edge--right {
+  right: 0;
+}
+
 .sticky-note__surface {
   position: relative;
   width: 100%;
@@ -186,9 +223,19 @@ textarea {
   cursor: grabbing;
 }
 
+.sticky-note--resizing {
+  cursor: default;
+}
+
 .sticky-note--dragging .sticky-note__surface {
   box-shadow:
     0 18px 30px rgba(120, 92, 26, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.sticky-note--resizing .sticky-note__surface {
+  box-shadow:
+    0 18px 30px rgba(120, 92, 26, 0.2),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 

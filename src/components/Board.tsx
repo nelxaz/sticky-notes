@@ -6,6 +6,9 @@ import { StickyNote } from "./StickyNote.tsx";
 
 const DEFAULT_NOTE_WIDTH = 180;
 const DEFAULT_NOTE_HEIGHT = 180;
+const MIN_NOTE_SIZE = 56;
+
+type ResizeEdge = "top" | "right" | "bottom" | "left";
 
 type MoveInteraction = {
   type: "move";
@@ -19,12 +22,26 @@ type MoveInteraction = {
   grabOffsetY: number;
 };
 
+type ResizeInteraction = {
+  type: "resize";
+  noteId: string;
+  pointerId: number;
+  edge: ResizeEdge;
+  startPointerX: number;
+  startPointerY: number;
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
+};
+
 export function Board() {
   const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
   const noteIdRef = useRef(0);
   const [notes, setNotes] = useState<Note[]>([]);
   const [nextZIndex, setNextZIndex] = useState(1);
-  const [interaction, setInteraction] = useState<MoveInteraction | null>(null);
+  const [moveInteraction, setMoveInteraction] = useState<MoveInteraction | null>(null);
+  const [resizeInteraction, setResizeInteraction] = useState<ResizeInteraction | null>(null);
 
   function handleBoardDoubleClick(event: MouseEvent<HTMLDivElement>) {
     const target = event.target;
@@ -56,7 +73,7 @@ export function Board() {
   }
 
   function handleNotePointerDown(event: ReactPointerEvent<HTMLElement>, note: Note) {
-    if (event.button !== 0 || !event.isPrimary || interaction) {
+    if (event.button !== 0 || !event.isPrimary || moveInteraction || resizeInteraction) {
       return;
     }
 
@@ -81,7 +98,42 @@ export function Board() {
       grabOffsetY: event.clientY - boardRect.top - note.y,
     };
 
-    setInteraction(nextInteraction);
+    setMoveInteraction(nextInteraction);
+    setNotes((currentNotes) =>
+      currentNotes.map((currentNote) =>
+        currentNote.id === note.id ? { ...currentNote, zIndex: nextZIndex } : currentNote,
+      ),
+    );
+    setNextZIndex((currentZIndex) => currentZIndex + 1);
+  }
+
+  function handleResizePointerDown(
+    event: ReactPointerEvent<HTMLElement>,
+    note: Note,
+    edge: ResizeEdge,
+  ) {
+    if (event.button !== 0 || !event.isPrimary || moveInteraction || resizeInteraction) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const nextInteraction: ResizeInteraction = {
+      type: "resize",
+      noteId: note.id,
+      pointerId: event.pointerId,
+      edge,
+      startPointerX: event.clientX,
+      startPointerY: event.clientY,
+      startX: note.x,
+      startY: note.y,
+      startWidth: note.width,
+      startHeight: note.height,
+    };
+
+    setResizeInteraction(nextInteraction);
     setNotes((currentNotes) =>
       currentNotes.map((currentNote) =>
         currentNote.id === note.id ? { ...currentNote, zIndex: nextZIndex } : currentNote,
@@ -91,50 +143,114 @@ export function Board() {
   }
 
   function handleNotePointerMove(event: ReactPointerEvent<HTMLElement>) {
-    if (!interaction || interaction.pointerId !== event.pointerId) {
-      return;
-    }
-
     const boardRect = boardSurfaceRef.current?.getBoundingClientRect();
 
     if (!boardRect) {
       return;
     }
 
-    const activeNote = notes.find((note) => note.id === interaction.noteId);
+    if (moveInteraction && moveInteraction.pointerId === event.pointerId) {
+      const activeNote = notes.find((note) => note.id === moveInteraction.noteId);
 
-    if (!activeNote) {
+      if (!activeNote) {
+        return;
+      }
+
+      const maxX = Math.max(0, boardRect.width - activeNote.width);
+      const maxY = Math.max(0, boardRect.height - activeNote.height);
+      const nextX = Math.min(
+        Math.max(0, event.clientX - boardRect.left - moveInteraction.grabOffsetX),
+        maxX,
+      );
+      const nextY = Math.min(
+        Math.max(0, event.clientY - boardRect.top - moveInteraction.grabOffsetY),
+        maxY,
+      );
+
+      setNotes((currentNotes) =>
+        currentNotes.map((note) =>
+          note.id === moveInteraction.noteId ? { ...note, x: nextX, y: nextY } : note,
+        ),
+      );
+
       return;
     }
 
-    const maxX = Math.max(0, boardRect.width - activeNote.width);
-    const maxY = Math.max(0, boardRect.height - activeNote.height);
-    const nextX = Math.min(
-      Math.max(0, event.clientX - boardRect.left - interaction.grabOffsetX),
-      maxX,
-    );
-    const nextY = Math.min(
-      Math.max(0, event.clientY - boardRect.top - interaction.grabOffsetY),
-      maxY,
-    );
+    if (!resizeInteraction || resizeInteraction.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const deltaX = event.clientX - resizeInteraction.startPointerX;
+    const deltaY = event.clientY - resizeInteraction.startPointerY;
 
     setNotes((currentNotes) =>
-      currentNotes.map((note) =>
-        note.id === interaction.noteId ? { ...note, x: nextX, y: nextY } : note,
-      ),
+      currentNotes.map((note) => {
+        if (note.id !== resizeInteraction.noteId) {
+          return note;
+        }
+
+        let nextX = resizeInteraction.startX;
+        let nextY = resizeInteraction.startY;
+        let nextWidth = resizeInteraction.startWidth;
+        let nextHeight = resizeInteraction.startHeight;
+
+        if (resizeInteraction.edge === "right") {
+          const maxWidth = boardRect.width - resizeInteraction.startX;
+          nextWidth = Math.min(
+            Math.max(MIN_NOTE_SIZE, resizeInteraction.startWidth + deltaX),
+            maxWidth,
+          );
+        }
+
+        if (resizeInteraction.edge === "bottom") {
+          const maxHeight = boardRect.height - resizeInteraction.startY;
+          nextHeight = Math.min(
+            Math.max(MIN_NOTE_SIZE, resizeInteraction.startHeight + deltaY),
+            maxHeight,
+          );
+        }
+
+        if (resizeInteraction.edge === "left") {
+          const unclampedX = resizeInteraction.startX + deltaX;
+          const maxX = resizeInteraction.startX + resizeInteraction.startWidth - MIN_NOTE_SIZE;
+          nextX = Math.min(Math.max(0, unclampedX), maxX);
+          nextWidth = resizeInteraction.startWidth + (resizeInteraction.startX - nextX);
+        }
+
+        if (resizeInteraction.edge === "top") {
+          const unclampedY = resizeInteraction.startY + deltaY;
+          const maxY = resizeInteraction.startY + resizeInteraction.startHeight - MIN_NOTE_SIZE;
+          nextY = Math.min(Math.max(0, unclampedY), maxY);
+          nextHeight = resizeInteraction.startHeight + (resizeInteraction.startY - nextY);
+        }
+
+        return {
+          ...note,
+          x: nextX,
+          y: nextY,
+          width: nextWidth,
+          height: nextHeight,
+        };
+      }),
     );
   }
 
-  function endMoveInteraction(event: ReactPointerEvent<HTMLElement>) {
-    if (!interaction || interaction.pointerId !== event.pointerId) {
-      return;
+  function endPointerInteraction(event: ReactPointerEvent<HTMLElement>) {
+    if (moveInteraction && moveInteraction.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+
+      setMoveInteraction(null);
     }
 
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
+    if (resizeInteraction && resizeInteraction.pointerId === event.pointerId) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
 
-    setInteraction(null);
+      setResizeInteraction(null);
+    }
   }
 
   return (
@@ -160,12 +276,14 @@ export function Board() {
         {notes.map((note) => (
           <StickyNote
             key={note.id}
-            isDragging={interaction?.noteId === note.id}
+            isDragging={moveInteraction?.noteId === note.id}
+            isResizing={resizeInteraction?.noteId === note.id}
             note={note}
-            onPointerCancel={endMoveInteraction}
+            onPointerCancel={endPointerInteraction}
             onPointerDown={handleNotePointerDown}
             onPointerMove={handleNotePointerMove}
-            onPointerUp={endMoveInteraction}
+            onResizePointerDown={handleResizePointerDown}
+            onPointerUp={endPointerInteraction}
           />
         ))}
         {notes.length === 0 ? (
