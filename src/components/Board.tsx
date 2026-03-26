@@ -36,6 +36,18 @@ type ResizeInteraction = {
   startHeight: number;
 };
 
+function clamp({
+  input,
+  lowerBound,
+  upperBound,
+}: {
+  input: number;
+  lowerBound: number;
+  upperBound: number;
+}) {
+  return Math.min(Math.max(input, lowerBound), upperBound);
+}
+
 export function Board() {
   const boardSurfaceRef = useRef<HTMLDivElement | null>(null);
   const trashZoneRef = useRef<HTMLDivElement | null>(null);
@@ -45,6 +57,14 @@ export function Board() {
   const [moveInteraction, setMoveInteraction] = useState<MoveInteraction | null>(null);
   const [resizeInteraction, setResizeInteraction] = useState<ResizeInteraction | null>(null);
   const [isTrashTargeted, setIsTrashTargeted] = useState(false);
+
+  function getBoardRect() {
+    return boardSurfaceRef.current?.getBoundingClientRect() ?? null;
+  }
+
+  function isInteractionActive() {
+    return moveInteraction !== null || resizeInteraction !== null;
+  }
 
   function isPointerInsideTrashZone(pointerX: number, pointerY: number) {
     const trashZoneRect = trashZoneRef.current?.getBoundingClientRect();
@@ -58,6 +78,27 @@ export function Board() {
       pointerX <= trashZoneRect.right &&
       pointerY >= trashZoneRect.top &&
       pointerY <= trashZoneRect.bottom
+    );
+  }
+
+  function clearTransientState() {
+    setMoveInteraction(null);
+    setResizeInteraction(null);
+    setIsTrashTargeted(false);
+  }
+
+  function promoteNoteToFront(noteId: string) {
+    setNotes((currentNotes) =>
+      currentNotes.map((currentNote) =>
+        currentNote.id === noteId ? { ...currentNote, zIndex: nextZIndex } : currentNote,
+      ),
+    );
+    setNextZIndex((currentZIndex) => currentZIndex + 1);
+  }
+
+  function updateNote(noteId: string, updater: (note: Note) => Note) {
+    setNotes((currentNotes) =>
+      currentNotes.map((note) => (note.id === noteId ? updater(note) : note)),
     );
   }
 
@@ -75,8 +116,16 @@ export function Board() {
     const boardRect = event.currentTarget.getBoundingClientRect();
     const maxX = Math.max(0, boardRect.width - DEFAULT_NOTE_WIDTH);
     const maxY = Math.max(0, boardRect.height - DEFAULT_NOTE_HEIGHT);
-    const x = Math.min(Math.max(0, event.clientX - boardRect.left), maxX);
-    const y = Math.min(Math.max(0, event.clientY - boardRect.top), maxY);
+    const x = clamp({
+      input: event.clientX - boardRect.left,
+      lowerBound: 0,
+      upperBound: maxX,
+    });
+    const y = clamp({
+      input: event.clientY - boardRect.top,
+      lowerBound: 0,
+      upperBound: maxY,
+    });
 
     noteIdRef.current += 1;
 
@@ -95,11 +144,11 @@ export function Board() {
   }
 
   function handleNotePointerDown(event: ReactPointerEvent<HTMLElement>, note: Note) {
-    if (event.button !== 0 || !event.isPrimary || moveInteraction || resizeInteraction) {
+    if (event.button !== 0 || !event.isPrimary || isInteractionActive()) {
       return;
     }
 
-    const boardRect = boardSurfaceRef.current?.getBoundingClientRect();
+    const boardRect = getBoardRect();
 
     if (!boardRect) {
       return;
@@ -121,12 +170,7 @@ export function Board() {
     };
 
     setMoveInteraction(nextInteraction);
-    setNotes((currentNotes) =>
-      currentNotes.map((currentNote) =>
-        currentNote.id === note.id ? { ...currentNote, zIndex: nextZIndex } : currentNote,
-      ),
-    );
-    setNextZIndex((currentZIndex) => currentZIndex + 1);
+    promoteNoteToFront(note.id);
   }
 
   function handleResizePointerDown(
@@ -134,7 +178,7 @@ export function Board() {
     note: Note,
     edge: ResizeEdge,
   ) {
-    if (event.button !== 0 || !event.isPrimary || moveInteraction || resizeInteraction) {
+    if (event.button !== 0 || !event.isPrimary || isInteractionActive()) {
       return;
     }
 
@@ -156,16 +200,11 @@ export function Board() {
     };
 
     setResizeInteraction(nextInteraction);
-    setNotes((currentNotes) =>
-      currentNotes.map((currentNote) =>
-        currentNote.id === note.id ? { ...currentNote, zIndex: nextZIndex } : currentNote,
-      ),
-    );
-    setNextZIndex((currentZIndex) => currentZIndex + 1);
+    promoteNoteToFront(note.id);
   }
 
   function handleNotePointerMove(event: ReactPointerEvent<HTMLElement>) {
-    const boardRect = boardSurfaceRef.current?.getBoundingClientRect();
+    const boardRect = getBoardRect();
 
     if (!boardRect) {
       return;
@@ -180,20 +219,18 @@ export function Board() {
 
       const maxX = Math.max(0, boardRect.width - activeNote.width);
       const maxY = Math.max(0, boardRect.height - activeNote.height);
-      const nextX = Math.min(
-        Math.max(0, event.clientX - boardRect.left - moveInteraction.grabOffsetX),
-        maxX,
-      );
-      const nextY = Math.min(
-        Math.max(0, event.clientY - boardRect.top - moveInteraction.grabOffsetY),
-        maxY,
-      );
+      const nextX = clamp({
+        input: event.clientX - boardRect.left - moveInteraction.grabOffsetX,
+        lowerBound: 0,
+        upperBound: maxX,
+      });
+      const nextY = clamp({
+        input: event.clientY - boardRect.top - moveInteraction.grabOffsetY,
+        lowerBound: 0,
+        upperBound: maxY,
+      });
 
-      setNotes((currentNotes) =>
-        currentNotes.map((note) =>
-          note.id === moveInteraction.noteId ? { ...note, x: nextX, y: nextY } : note,
-        ),
-      );
+      updateNote(moveInteraction.noteId, (note) => ({ ...note, x: nextX, y: nextY }));
       setIsTrashTargeted(isPointerInsideTrashZone(event.clientX, event.clientY));
 
       return;
@@ -206,56 +243,58 @@ export function Board() {
     const deltaX = event.clientX - resizeInteraction.startPointerX;
     const deltaY = event.clientY - resizeInteraction.startPointerY;
 
-    setNotes((currentNotes) =>
-      currentNotes.map((note) => {
-        if (note.id !== resizeInteraction.noteId) {
-          return note;
-        }
+    updateNote(resizeInteraction.noteId, (note) => {
+      let nextX = resizeInteraction.startX;
+      let nextY = resizeInteraction.startY;
+      let nextWidth = resizeInteraction.startWidth;
+      let nextHeight = resizeInteraction.startHeight;
 
-        let nextX = resizeInteraction.startX;
-        let nextY = resizeInteraction.startY;
-        let nextWidth = resizeInteraction.startWidth;
-        let nextHeight = resizeInteraction.startHeight;
+      if (resizeInteraction.edge === "right") {
+        const maxWidth = boardRect.width - resizeInteraction.startX;
+        nextWidth = clamp({
+          input: resizeInteraction.startWidth + deltaX,
+          lowerBound: MIN_NOTE_SIZE,
+          upperBound: maxWidth,
+        });
+      }
 
-        if (resizeInteraction.edge === "right") {
-          const maxWidth = boardRect.width - resizeInteraction.startX;
-          nextWidth = Math.min(
-            Math.max(MIN_NOTE_SIZE, resizeInteraction.startWidth + deltaX),
-            maxWidth,
-          );
-        }
+      if (resizeInteraction.edge === "bottom") {
+        const maxHeight = boardRect.height - resizeInteraction.startY;
+        nextHeight = clamp({
+          input: resizeInteraction.startHeight + deltaY,
+          lowerBound: MIN_NOTE_SIZE,
+          upperBound: maxHeight,
+        });
+      }
 
-        if (resizeInteraction.edge === "bottom") {
-          const maxHeight = boardRect.height - resizeInteraction.startY;
-          nextHeight = Math.min(
-            Math.max(MIN_NOTE_SIZE, resizeInteraction.startHeight + deltaY),
-            maxHeight,
-          );
-        }
+      if (resizeInteraction.edge === "left") {
+        const maxX = resizeInteraction.startX + resizeInteraction.startWidth - MIN_NOTE_SIZE;
+        nextX = clamp({
+          input: resizeInteraction.startX + deltaX,
+          lowerBound: 0,
+          upperBound: maxX,
+        });
+        nextWidth = resizeInteraction.startWidth + (resizeInteraction.startX - nextX);
+      }
 
-        if (resizeInteraction.edge === "left") {
-          const unclampedX = resizeInteraction.startX + deltaX;
-          const maxX = resizeInteraction.startX + resizeInteraction.startWidth - MIN_NOTE_SIZE;
-          nextX = Math.min(Math.max(0, unclampedX), maxX);
-          nextWidth = resizeInteraction.startWidth + (resizeInteraction.startX - nextX);
-        }
+      if (resizeInteraction.edge === "top") {
+        const maxY = resizeInteraction.startY + resizeInteraction.startHeight - MIN_NOTE_SIZE;
+        nextY = clamp({
+          input: resizeInteraction.startY + deltaY,
+          lowerBound: 0,
+          upperBound: maxY,
+        });
+        nextHeight = resizeInteraction.startHeight + (resizeInteraction.startY - nextY);
+      }
 
-        if (resizeInteraction.edge === "top") {
-          const unclampedY = resizeInteraction.startY + deltaY;
-          const maxY = resizeInteraction.startY + resizeInteraction.startHeight - MIN_NOTE_SIZE;
-          nextY = Math.min(Math.max(0, unclampedY), maxY);
-          nextHeight = resizeInteraction.startHeight + (resizeInteraction.startY - nextY);
-        }
-
-        return {
-          ...note,
-          x: nextX,
-          y: nextY,
-          width: nextWidth,
-          height: nextHeight,
-        };
-      }),
-    );
+      return {
+        ...note,
+        x: nextX,
+        y: nextY,
+        width: nextWidth,
+        height: nextHeight,
+      };
+    });
   }
 
   function endPointerInteraction(event: ReactPointerEvent<HTMLElement>) {
@@ -269,9 +308,8 @@ export function Board() {
           currentNotes.filter((note) => note.id !== moveInteraction.noteId),
         );
       }
-
-      setMoveInteraction(null);
-      setIsTrashTargeted(false);
+      clearTransientState();
+      return;
     }
 
     if (resizeInteraction && resizeInteraction.pointerId === event.pointerId) {
@@ -279,8 +317,7 @@ export function Board() {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
-      setResizeInteraction(null);
-      setIsTrashTargeted(false);
+      clearTransientState();
     }
   }
 

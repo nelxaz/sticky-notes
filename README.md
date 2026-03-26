@@ -52,4 +52,4 @@ pnpm preview
 ## Notes
 
 - The app uses custom React components only. No stock UI component library is used.
-- The current implementation covers Slice 1: the app shell and bounded board surface.
+- The current implementation includes note creation, dragging, edge resizing, and trash-drop deletion.
