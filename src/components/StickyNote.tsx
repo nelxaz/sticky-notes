@@ -1,7 +1,6 @@
 import type { Note } from "../types/notes.ts";
 import type { PointerEvent as ReactPointerEvent } from "react";
-
-type ResizeEdge = "top" | "right" | "bottom" | "left";
+import type { ResizeEdge } from "../types/interactions.ts";
 
 type StickyNoteProps = {
   isDragging: boolean;
