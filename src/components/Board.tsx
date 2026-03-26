@@ -1,40 +1,44 @@
-import { useState } from "react";
-import { StickyNote } from "./StickyNote.tsx";
 import type { Note } from "../types/notes.ts";
+import type { MouseEvent } from "react";
+import { useRef, useState } from "react";
+import { StickyNote } from "./StickyNote.tsx";
 
-const SEEDED_NOTES: Note[] = [
-  {
-    id: "seed-1",
-    x: 72,
-    y: 56,
-    width: 180,
-    height: 180,
-    text: "Scope the board before adding gestures.",
-    zIndex: 1,
-  },
-  {
-    id: "seed-2",
-    x: 288,
-    y: 138,
-    width: 204,
-    height: 168,
-    text: "Static notes first. Creation arrives in Slice 3.",
-    zIndex: 2,
-  },
-  {
-    id: "seed-3",
-    x: 546,
-    y: 86,
-    width: 188,
-    height: 196,
-    text: "Board owns note geometry and layering state.",
-    zIndex: 3,
-  },
-];
+const DEFAULT_NOTE_WIDTH = 180;
+const DEFAULT_NOTE_HEIGHT = 180;
 
 export function Board() {
-  const [notes] = useState<Note[]>(SEEDED_NOTES);
-  const [nextZIndex] = useState(() => Math.max(...SEEDED_NOTES.map((note) => note.zIndex)) + 1);
+  const noteIdRef = useRef(0);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [nextZIndex, setNextZIndex] = useState(1);
+
+  function handleBoardDoubleClick(event: MouseEvent<HTMLDivElement>) {
+    const target = event.target;
+
+    if (!(target instanceof HTMLElement) || target.closest("[data-note-root='true']")) {
+      return;
+    }
+
+    const boardRect = event.currentTarget.getBoundingClientRect();
+    const maxX = Math.max(0, boardRect.width - DEFAULT_NOTE_WIDTH);
+    const maxY = Math.max(0, boardRect.height - DEFAULT_NOTE_HEIGHT);
+    const x = Math.min(Math.max(0, event.clientX - boardRect.left), maxX);
+    const y = Math.min(Math.max(0, event.clientY - boardRect.top), maxY);
+
+    noteIdRef.current += 1;
+
+    const nextNote: Note = {
+      id: `note-${noteIdRef.current}`,
+      x,
+      y,
+      width: DEFAULT_NOTE_WIDTH,
+      height: DEFAULT_NOTE_HEIGHT,
+      text: "",
+      zIndex: nextZIndex,
+    };
+
+    setNotes((currentNotes) => [...currentNotes, nextNote]);
+    setNextZIndex((currentZIndex) => currentZIndex + 1);
+  }
 
   return (
     <section className="board-frame" aria-labelledby="board-title">
@@ -44,11 +48,16 @@ export function Board() {
           <h2 id="board-title">Board</h2>
         </div>
         <p className="board-frame__status">
-          {notes.length} note{notes.length === 1 ? "" : "s"} staged
+          {notes.length} note{notes.length === 1 ? "" : "s"} on board
         </p>
       </header>
 
-      <div className="board-surface" aria-label="Sticky notes board" role="presentation">
+      <div
+        className="board-surface"
+        aria-label="Sticky notes board"
+        role="presentation"
+        onDoubleClick={handleBoardDoubleClick}
+      >
         <div className="board-surface__grid" aria-hidden="true" />
         {notes.map((note) => (
           <StickyNote key={note.id} note={note} />

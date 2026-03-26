@@ -8,6 +8,7 @@ export function StickyNote({ note }: StickyNoteProps) {
   return (
     <article
       className="sticky-note"
+      data-note-root="true"
       style={{
         left: note.x,
         top: note.y,
