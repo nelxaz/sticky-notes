@@ -1,3 +1,5 @@
+export type NoteColor = "butter" | "peach" | "mint" | "sky" | "lilac" | "pink";
+
 export type Note = {
   id: string;
   x: number;
@@ -5,5 +7,6 @@ export type Note = {
   width: number;
   height: number;
   text: string;
+  color: NoteColor;
   zIndex: number;
 };

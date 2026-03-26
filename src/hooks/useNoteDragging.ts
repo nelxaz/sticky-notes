@@ -20,6 +20,7 @@ export function useNoteDragging({
   activeInteractionRef,
   boardSurfaceRef,
   clearTrashTarget,
+  isNoteLocked,
   handleTrashDrop,
   nextZIndex,
   notes,
@@ -30,7 +31,8 @@ export function useNoteDragging({
   activeInteractionRef: RefObject<ActiveInteractionKind | null>;
   boardSurfaceRef: RefObject<HTMLDivElement | null>;
   clearTrashTarget: () => void;
-  handleTrashDrop: (noteId: string) => void;
+  handleTrashDrop: (noteId: string) => Promise<void>;
+  isNoteLocked: (noteId: string) => boolean;
   nextZIndex: number;
   notes: Note[];
   setNotes: Dispatch<SetStateAction<Note[]>>;
@@ -40,7 +42,12 @@ export function useNoteDragging({
   const [moveInteraction, setMoveInteraction] = useState<MoveInteraction | null>(null);
 
   function handleNotePointerDown(event: ReactPointerEvent<HTMLElement>, note: Note) {
-    if (event.button !== 0 || !event.isPrimary || activeInteractionRef.current) {
+    if (
+      event.button !== 0 ||
+      !event.isPrimary ||
+      activeInteractionRef.current ||
+      isNoteLocked(note.id)
+    ) {
       return;
     }
 
@@ -108,7 +115,7 @@ export function useNoteDragging({
     syncTrashTarget(event.clientX, event.clientY);
   }
 
-  function endMoveInteraction(event: ReactPointerEvent<HTMLElement>) {
+  async function endMoveInteraction(event: ReactPointerEvent<HTMLElement>) {
     if (!moveInteraction || moveInteraction.pointerId !== event.pointerId) {
       return;
     }
@@ -117,7 +124,7 @@ export function useNoteDragging({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
 
-    handleTrashDrop(moveInteraction.noteId);
+    await handleTrashDrop(moveInteraction.noteId);
     activeInteractionRef.current = null;
     setMoveInteraction(null);
     clearTrashTarget();

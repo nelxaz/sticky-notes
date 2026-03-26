@@ -1,22 +1,31 @@
 import type { Dispatch, MouseEvent, MutableRefObject, SetStateAction } from "react";
 import type { Note } from "../types/notes.ts";
+import type { NoteColor } from "../types/notes.ts";
 import { clamp } from "./stickyBoardUtils.ts";
 
 const DEFAULT_NOTE_WIDTH = 180;
 const DEFAULT_NOTE_HEIGHT = 180;
 
 export function useNoteCreation({
+  canCreateNote,
   noteIdRef,
   nextZIndex,
+  selectedColor,
   setNotes,
   setNextZIndex,
 }: {
+  canCreateNote: boolean;
   noteIdRef: MutableRefObject<number>;
   nextZIndex: number;
+  selectedColor: NoteColor;
   setNotes: Dispatch<SetStateAction<Note[]>>;
   setNextZIndex: Dispatch<SetStateAction<number>>;
 }) {
   function handleBoardDoubleClick(event: MouseEvent<HTMLDivElement>) {
+    if (!canCreateNote) {
+      return;
+    }
+
     const target = event.target;
 
     if (
@@ -50,6 +59,7 @@ export function useNoteCreation({
       width: DEFAULT_NOTE_WIDTH,
       height: DEFAULT_NOTE_HEIGHT,
       text: "",
+      color: selectedColor,
       zIndex: nextZIndex,
     };
 

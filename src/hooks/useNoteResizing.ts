@@ -23,6 +23,7 @@ export function useNoteResizing({
   activeInteractionRef,
   boardSurfaceRef,
   clearTrashTarget,
+  isNoteLocked,
   nextZIndex,
   setNotes,
   setNextZIndex,
@@ -30,6 +31,7 @@ export function useNoteResizing({
   activeInteractionRef: RefObject<ActiveInteractionKind | null>;
   boardSurfaceRef: RefObject<HTMLDivElement | null>;
   clearTrashTarget: () => void;
+  isNoteLocked: (noteId: string) => boolean;
   nextZIndex: number;
   setNotes: Dispatch<SetStateAction<Note[]>>;
   setNextZIndex: Dispatch<SetStateAction<number>>;
@@ -41,7 +43,12 @@ export function useNoteResizing({
     note: Note,
     edge: ResizeEdge,
   ) {
-    if (event.button !== 0 || !event.isPrimary || activeInteractionRef.current) {
+    if (
+      event.button !== 0 ||
+      !event.isPrimary ||
+      activeInteractionRef.current ||
+      isNoteLocked(note.id)
+    ) {
       return;
     }
 

@@ -1,9 +1,12 @@
 import { useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { Note } from "../types/notes.ts";
+import { deleteNoteRequest } from "../mocks/notesApi.ts";
 
 export function useTrashDrop({ setNotes }: { setNotes: Dispatch<SetStateAction<Note[]>> }) {
   const trashZoneRef = useRef<HTMLDivElement | null>(null);
+  const [deleteErrorMessage, setDeleteErrorMessage] = useState("");
+  const [pendingDeleteNoteId, setPendingDeleteNoteId] = useState<string | null>(null);
   const [isTrashTargeted, setIsTrashTargeted] = useState(false);
 
   function syncTrashTarget(pointerX: number, pointerY: number) {
@@ -26,18 +29,37 @@ export function useTrashDrop({ setNotes }: { setNotes: Dispatch<SetStateAction<N
     setIsTrashTargeted(false);
   }
 
-  function handleTrashDrop(noteId: string) {
+  function clearDeleteError() {
+    setDeleteErrorMessage("");
+  }
+
+  async function handleTrashDrop(noteId: string) {
     if (!isTrashTargeted) {
       return;
     }
 
-    setNotes((currentNotes) => currentNotes.filter((note) => note.id !== noteId));
+    setPendingDeleteNoteId(noteId);
+    setDeleteErrorMessage("");
+
+    try {
+      await deleteNoteRequest();
+      setNotes((currentNotes) => currentNotes.filter((note) => note.id !== noteId));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The note could not be deleted. Please try again.";
+      setDeleteErrorMessage(message);
+    } finally {
+      setPendingDeleteNoteId(null);
+    }
   }
 
   return {
+    clearDeleteError,
     clearTrashTarget,
+    deleteErrorMessage,
     handleTrashDrop,
     isTrashTargeted,
+    pendingDeleteNoteId,
     syncTrashTarget,
     trashZoneRef,
   };
